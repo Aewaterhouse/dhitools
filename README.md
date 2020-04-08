@@ -13,6 +13,8 @@ To do:
 * Check functionality with sigma/z-layer meshtypes
 * Implement direct item plotting from 3D dfsu files (without first converting to 2D)
 
+## DHI Tools
+
 Python tools for working with [DHI MIKE21](https://www.mikepoweredbydhi.com/products/mike-21).
 
 Features:  
