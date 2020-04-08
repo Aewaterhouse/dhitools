@@ -6,7 +6,7 @@
 #### Fork of Rob Wall's dhitools Package: https://github.com/robjameswall/dhitools
 Key changes:
 * Support for quadrilateral meshes
-* Support for 3D dfsu filetypes (sigma fully intergrated, sigma/z-layer have been semi integrated)
+* Support for 3D dfsu filetypes (sigma only are fully integrated, sigma/z-layer are semi-integrated.)
 * Separated out plotting routines into a new module for more flexibility
 
 To do:
