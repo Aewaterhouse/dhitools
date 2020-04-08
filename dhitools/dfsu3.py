@@ -6,8 +6,8 @@ Alex Waterhouse (expanded functionality)
 
 """
 
+from . import dfsu
 from . import mesh
-from . import plot
 from . import _utils
 from . import config
 from . import units
@@ -99,6 +99,21 @@ class Dfsu(mesh.Mesh):
 
         dfsu_object = dfs.DfsFileFactory.DfsuFileOpen(self.filename)
 
+        mesh_in_3d = _3d_element_geo(dfsu_object, self.element_table)
+
+        self.geo2d = _calc_2d_geo(
+            dfsu_object,
+            self.elements,
+            self.nodes,
+            self.node_ids,
+            self.element_table,
+            mesh_in_3d[2],
+        )
+
+        self.element_ids_horz = mesh_in_3d[0]
+        self.element_ids_vert = mesh_in_3d[1]
+        self.element_ids_surf = mesh_in_3d[2]
+
         # Time attributes
         self.start_datetime_str = dfsu_object.StartDateTime.Date.ToString()
         dt_start_obj = dfsu_object.StartDateTime
@@ -152,7 +167,7 @@ class Dfsu(mesh.Mesh):
                 )
 
     def item_element_data(
-        self, item_name, tstep_start=None, tstep_end=None, element_list=None
+        self, item_name, tstep_start=None, tstep_end=None, element_list=None,
     ):
         """
         Get element data for specified item with option to specify range of
@@ -221,13 +236,8 @@ class Dfsu(mesh.Mesh):
         node_data : ndarray, shape (num_nodes,[tstep_end-tstep_start])
             Node data for specified item and time steps
         """
+
         dfsu_object = dfs.DfsFileFactory.DfsuFileOpen(self.filename)
-
-        # if self.ele_type == "TRI":
-        #     node_table = self.node_table
-        # else:
-        node_table = self.node_table
-
         node_data = _node_data(
             dfsu_object=dfsu_object,
             item_name=item_name,
@@ -235,7 +245,6 @@ class Dfsu(mesh.Mesh):
             ele_cords=self.elements,
             node_cords=self.nodes,
             node_table=self.node_table,
-            element_table=self.element_table,
             tstep_start=tstep_start,
             tstep_end=tstep_end,
         )
@@ -507,9 +516,7 @@ class Dfsu(mesh.Mesh):
         else:
             return max_amplitude_ele
 
-    def plot_item(
-        self, item_name=None, tstep=None, node_data=None, plot_mesh=False, **kwargs
-    ):
+    def plot_item(self, item_name=None, tstep=None, node_data=None, kwargs=None):
         """
         Plot triangular mesh with tricontourf for input item and timestep
 
@@ -522,7 +529,7 @@ class Dfsu(mesh.Mesh):
             the `Dfsu.items` attribute.
         tstep : int
             Specify time step for node data. Timesteps begin from 0.
-        node_data : ndarray or None, shape (num_nodes,), optional
+        node_date : ndarray or None, shape (num_nodes,), optional
             Provide data at node coordinates to plot. Will take precedence
             over `item_name` and `tstep`.
         kwargs : dict
@@ -545,21 +552,59 @@ class Dfsu(mesh.Mesh):
         else:
             item_data = node_data
 
-        # If the meshtype is mixed quad/tri, substitute element table with the 
-        # equivalent tri only table. 
-        if self.ele_type == "TRI":
-            element_table = self.element_table
-        elif self.ele_type == "QUAD-TRI":
-            element_table = self.element_table_tri
-
-        fig, ax, tf = plot.filled_mesh_plot(
-            self.nodes[:, 0], self.nodes[:, 1], item_data, element_table, kwargs=kwargs
+        fig, ax, tf = plot._filled_mesh_plot(
+            self.nodes[:, 0], self.nodes[:, 1], item_data, self.element_table, kwargs
         )
 
-        if plot_mesh:
-            self.plot_mesh(ax=ax)
-
         return fig, ax, tf
+
+    def plot_mesh(self, fill=False, kwargs=None):
+        """
+        Plot Horizontal (2D) representative of triangular mesh 
+        with triplot or tricontourf.
+
+        See matplotlib kwargs for respective additional plot arguments.
+
+        **Warning**: if mesh is large performance will be poor
+
+        Parameters
+        ----------
+        fill : boolean
+            if True, plots filled contour mesh (tricontourf)
+            if False, plots (x, y) triangular mesh (triplot)
+        kwargs : dict
+            Additional arguments supported by triplot/tricontourf
+
+        Returns
+        -------
+        fig : matplotlib figure obj
+            Figure object
+        ax : matplotlib axis obj
+            Axis object
+
+        If `fill` is True
+            tf : matplotlib tricontourf obj
+                Tricontourf object
+
+        See Also
+        --------
+        * `Triplot <https://matplotlib.org/api/_as_gen/matplotlib.pyplot.triplot.html>`_
+        * `Tricontourf <https://matplotlib.org/api/_as_gen/matplotlib.pyplot.tricontourf.html>`_
+
+        """
+
+        nodes = self.geo2d["nodes"]
+        element_table = self.geo2d["element_table"]
+
+        if fill:
+            fig, ax, tf = mesh._filled_mesh_plot(
+                nodes[:, 0], nodes[:, 1], nodes[:, 2], element_table, kwargs,
+            )
+            return fig, ax, tf
+
+        else:
+            fig, ax = mesh._mesh_plot(nodes[:, 0], nodes[:, 1], element_table, kwargs)
+            return fig, ax
 
     def gridded_item(
         self,
@@ -757,11 +802,261 @@ class Dfsu(mesh.Mesh):
         """
         raise AttributeError("'dfsu' object has no attribute 'mask'")
 
-    def create_dfsu(
+    def find_nearest_element(self, points, tree=None):
+        """ Returns 2D element number of the nearest ele to each point"""
+        if tree is None:
+            xy = self.geo2d["elements"][:, 0:2]
+            tree = cKDTree(xy)
+
+        _, idx = tree.query(points, k=1)
+        ind = np.column_stack(np.unravel_index(idx, xy.shape[0]))
+
+        return ind + 1  # +1 to align with DHI ele-num
+
+    def extract_2D_element_data(
+        self, item_name=None, tstep_start=None, tstep_end=None, layers=None
+    ):
+        """
+        Extract element data and convert to 2D by taking the maximum.
+        
+        Element data can be combined by taking the maximum throughout all vertical
+        layers (default), or for a specified layer or layers if supplied. 
+        
+        Parameters
+        ----------
+        item_name : str
+            Specified item to return element data. Item names are found in
+            the `Dfsu.items` attribute.
+        tstep_start : int or None, optional
+            Specify time step for data considered in determining maximum.
+            Timesteps begin from 0.
+            If `None`, returns data from 0 time step.
+        tstep_end : int or None, optional
+            Specify last time step for data considered in determining maximum
+            Must be positive int <= number of timesteps
+            If `None`, returns all time steps from `tstep_start`:end
+        layers : list, Optional
+            List of layers to take the maximum value over.
+        """
+
+        dfsu_geo = {}
+        dfsu_geo["elements_2d"] = self.geo2d["elements"]
+        dfsu_geo["element_ids_horz"] = self.element_ids_horz
+        dfsu_geo["element_ids_vert"] = self.element_ids_vert
+
+        dfsu_object = dfs.DfsFileFactory.DfsuFileOpen(self.filename)
+
+        element_data_2d = _extract_2D_element_data(
+            dfsu_object,
+            item_name,
+            self.items,
+            dfsu_geo,
+            tstep_start=tstep_start,
+            tstep_end=tstep_end,
+            layers=layers,
+        )
+
+        dfsu_object.Close()
+
+        return element_data_2d
+
+    def calc_percentiles_3Dto2D(
+        self,
+        item_name,
+        percentiles,
+        tstep_start=None,
+        tstep_end=None,
+        node=False,
+        layers=None,
+        element_data_2d=None,
+    ):
+        """
+        Calculate percentile levels for a specified item over entire model domain.
+        
+        The function will calculate the value based on the maximum value throughout 
+        the  water column (i.e. max over all vertical layers for each cell), or 
+        based on the maximum value over specified layers (layers = List of Ints), 
+        or for a single layer (layer = Int).
+        
+        Parameters
+        ----------
+        item_name : str
+            Specified item to return element data. Item names are found in
+            the `Dfsu.items` attribute.
+        percentiles: int or tuple
+            Percentile(s) to be calculated
+        tstep_start : int or None, optional
+            Specify time step for data considered in determining maximum.
+            Timesteps begin from 0.
+            If `None`, returns data from 0 time step.
+        tstep_end : int or None, optional
+            Specify last time step for data considered in determining maximum
+            Must be positive int <= number of timesteps
+            If `None`, returns all time steps from `tstep_start`:end
+        node : boolean, optional
+            If True, returns item data at node rather than element
+        layers : list, Optional
+            List of layers to take the maximum value over.
+        element_data_2d : numpy.array, Optional
+            Pre-extracted element data can be supplied (nelements x ntimesteps)
+
+        Returns
+        -------
+
+        if `node` is False
+        max_ele : ndarray, shape (num_elements,)
+            Maximum elements values for specified item
+
+        if `node` is True
+        min_node : ndarray, shape (num_nodes,)
+            Minimum node values for specified item
+
+        """
+
+        # User may have extracted element data and applied custom calcs beforehand.
+        if element_data_2d is None:
+            # Pass required geometry information
+            dfsu_geo = {}
+            dfsu_geo["elements_2d"] = self.geo2d["elements"]
+            dfsu_geo["element_ids_horz"] = self.element_ids_horz
+            dfsu_geo["element_ids_vert"] = self.element_ids_vert
+
+            dfsu_object = dfs.DfsFileFactory.DfsuFileOpen(self.filename)
+
+            element_data_2d = _extract_2D_element_data(
+                dfsu_object,
+                item_name,
+                self.items,
+                dfsu_geo,
+                tstep_start=tstep_start,
+                tstep_end=tstep_end,
+                layers=layers,
+            )
+
+            dfsu_object.Close()
+
+        ele_percentile_data = np.percentile(element_data_2d, percentiles, axis=1).T
+
+        # Return either element data or convert to node if specified
+        if node:
+            node_percentile_data = _map_ele_to_node(
+                node_table=self.node_table,
+                elements=self.elements,
+                nodes=self.nodes,
+                element_data=ele_percentile_data,
+            )
+
+            return node_percentile_data
+        else:
+            return ele_percentile_data
+
+    def calc_percentage_exceedance_3Dto2D(
+        self,
+        item_name,
+        thresholds,
+        tstep_start=None,
+        tstep_end=None,
+        node=False,
+        layers=None,
+        element_data_2d=None,
+    ):
+        """
+        Calculate percentage of time that a specified item 
+        exceeds a threshold value over entire model domain.
+        
+        The function will calculate the value based on the maximum value throughout 
+        the  water column (i.e. max over all vertical layers for each cell), or 
+        based on the maximum value over specified layers (layers = List of Ints), 
+        or for a single layer (layer = Int).
+        
+        Parameters
+        ----------
+        item_name : str
+            Specified item to return element data. Item names are found in
+            the `Dfsu.items` attribute.
+        threholds: int, tuple,
+            Percentile(s) to be calculated
+        tstep_start : int or None, optional
+            Specify time step for data considered in determining maximum.
+            Timesteps begin from 0.
+            If `None`, returns data from 0 time step.
+        tstep_end : int or None, optional
+            Specify last time step for data considered in determining maximum
+            Must be positive int <= number of timesteps
+            If `None`, returns all time steps from `tstep_start`:end
+        node : boolean, optional
+            If True, returns item data at node rather than element
+        layers : list, Optional
+            List of layers to take the maximum value over.
+        element_data_2d : numpy.array, Optional
+            Pre-extracted element data can be supplied (nelements x ntimesteps)
+        
+
+        Returns
+        -------
+
+        if `node` is False
+        max_ele : ndarray, shape (num_elements,)
+            Maximum elements values for specified item
+
+        if `node` is True
+        min_node : ndarray, shape (num_nodes,)
+            Minimum node values for specified item
+
+        """
+        # User may have extracted element data and applied custom calcs beforehand.
+        if element_data_2d is None:
+            # Pass required geometry information
+            dfsu_geo = {}
+            dfsu_geo["elements_2d"] = self.geo2d["elements"]
+            dfsu_geo["element_ids_horz"] = self.element_ids_horz
+            dfsu_geo["element_ids_vert"] = self.element_ids_vert
+
+            dfsu_object = dfs.DfsFileFactory.DfsuFileOpen(self.filename)
+
+            element_data_2d = _extract_2D_element_data(
+                dfsu_object,
+                item_name,
+                self.items,
+                dfsu_geo,
+                tstep_start=tstep_start,
+                tstep_end=tstep_end,
+                layers=layers,
+            )
+
+            dfsu_object.Close()
+
+        # Initialise array
+        element_perc_exc_data = np.zeros(
+            (element_data_2d.shape[0], len(thresholds)), dtype=float
+        )
+
+        # Find and sum occurrences when value exceeds threshold.
+        for c, t in enumerate(thresholds):
+            abv_thr = np.sum([element_data_2d >= t], axis=2)
+            element_perc_exc_data[:, c] = (
+                abv_thr.T[:, 0] / element_data_2d.shape[1] * 100
+            )
+
+        # Return either element data or convert to node if specified
+        if node:
+            # Max element item to node
+            node_perc_exc_data = _map_ele_to_node(
+                node_table=self.node_table,
+                elements=self.elements,
+                nodes=self.nodes,
+                element_data=element_perc_exc_data,
+            )
+
+            return node_perc_exc_data
+        else:
+            return element_perc_exc_data
+
+    def create_3D_dfsu(
         self, items, output_dfsu, start_datetime=None, timestep=None,
     ):
         """
-        Create a new `dfsu` file based on the underlying :class:`Dfsu()` for
+        Create a new 3D `dfsu` file based on the underlying :class:`Dfsu()` for
         some new non-temporal or temporal layer.
 
         Parameters
@@ -831,7 +1126,7 @@ class Dfsu(mesh.Mesh):
         Creates a new dfsu file at output_dfsu : dfsu file
 
         """
-        dim = self.elements.shape
+        dim = self.geo2d["elements"].shape
         for v in items.values():
             assert (
                 v["arr"].shape[0] == dim[0]
@@ -856,6 +1151,125 @@ class Dfsu(mesh.Mesh):
         # Set dfsu items
         builder.SetNodes(node_x, node_y, node_z, node_id)
         builder.SetElements(dfs_obj.ElementTable)
+        builder.SetProjection(dfs_obj.Projection)
+
+        # Start datetime and time step
+        if start_datetime is not None:
+            sys_dt = System.DateTime(
+                start_datetime.year,
+                start_datetime.month,
+                start_datetime.day,
+                start_datetime.hour,
+                start_datetime.minute,
+                start_datetime.second,
+            )
+        else:
+            sys_dt = dfs_obj.StartDateTime
+
+        if timestep is None:
+            timestep = dfs_obj.TimeStepInSeconds
+        builder.SetTimeInfo(sys_dt, timestep)
+
+        # Create items
+        for item_name, v in items.items():
+            builder.AddDynamicItem(
+                item_name, eumQuantity(v["item_type"], v["unit_type"])
+            )
+
+        # Create file
+        dfsu_file = builder.CreateFile(output_dfsu)
+
+        # Stack arrays by a third dimension (nelements x ntimesteps x nvariables)
+        arr = np.dstack([v["arr"] for v in items.values()])
+
+        # Write item data
+        ntimesteps = arr.shape[1]
+        nvariables = arr.shape[2]
+        for j in range(ntimesteps):
+            for k in range(nvariables):
+                net_arr = Array.CreateInstance(System.Single, dim[0])
+                for i, val in enumerate(arr[:, j, k]):
+                    net_arr[i] = val
+                dfsu_file.WriteItemTimeStepNext(0, net_arr)
+
+        # Close file
+        dfsu_file.Close()
+
+    def create_2D_dfsu(
+        self, items, output_dfsu, start_datetime=None, timestep=None,
+    ):
+        """
+        Create a new `dfsu` file based on the underlying :class:`Dfsu()` for
+        some new non-temporal or temporal layer.
+
+        Parameters
+        ----------
+        items : dictionary
+            Dict of items to write to dfsu.
+            Item data and info is stored as a sub-dict of the items dict. 
+            
+            Item and unit information can be assigned to the dictionary. 
+            If left blank, items will be assigned as type SurfaceElevation (units: m)
+            
+            All item data should have the same number of timesteps. 
+            
+            Example: 
+                items = {'Surface Elevation': 
+                    {
+                        'arr': element_data, 
+                        'item_type': units.get_item("SurfaceElevation"), 
+                        'unit_type': units.get_unit("meter"),
+                    }
+
+            Dict-keys : str
+                Name of items to write to `dfsu`
+            
+            Sub-Dict Keys and Values:
+            arr : ndarray, shape (num_elements, num_timesteps)
+                Array to write to dfsu file. Number of rows must equal the number
+                of elements in the :class:`Dfsu()` object and the order of the
+                array must align with the order of the elements. Can create a
+                non-temporal `dfsu` layer of a single dimensional input `arr`, or a
+                temporal `dfsu` layer at `timestep` from `start_datetime`.
+            item_type: str
+                MIKE21 item code. See :func:`get_item() <dhitools.units.get_item>`.
+                Default is "SurfaceElevation"
+            unit_type : str
+                MIKE21 unit code. See :func:`get_unit() <dhitools.units.get_unit>`.
+                Default is "meter" unit
+        output_dfsu : str
+            Path to output .dfsu file
+        start_datetime : datetime
+            Start datetime (datetime object). If `None`, use the base
+            :class:`Dfsu()` `start_datetime`.
+        timestep : float
+            Timestep delta in seconds. If `None`, use the base
+            :class:`Dfsu()` `timestep`.
+
+        Returns
+        -------
+        Creates a new dfsu file at output_dfsu : dfsu file
+
+        """
+        dim = self.geo2d["elements"].shape
+        for v in items.values():
+            assert (
+                v["arr"].shape[0] == dim[0]
+            ), "Rows of input array must equal number of mesh elements"
+
+        dfs_obj = dfs.DfsFileFactory.DfsuFileOpen(self.filename)
+        builder = dfs.dfsu.DfsuBuilder.Create(dfs.dfsu.DfsuFileType.Dfsu2D)
+
+        # Create mesh nodes
+        node_x = Array[System.Double](self.geo2d["nodes"][:, 0])
+        node_y = Array[System.Double](self.geo2d["nodes"][:, 1])
+        node_z = Array[System.Single](self.geo2d["nodes"][:, 2])
+        node_id = Array[System.Int32](self.geo2d["node_boundary_code"].T[:, 0])
+        elmt_table = self.geo2d["element_table"].astype(System.Int32)
+
+        # Set dfsu items
+        builder.SetNodes(node_x, node_y, node_z, node_id)
+        builder.SetElements(elmt_table)
         builder.SetProjection(dfs_obj.Projection)
 
         # Start datetime and time step
@@ -933,6 +1347,115 @@ Read item node and element data
 """
 
 
+def _3d_element_geo(dfs_obj, element_table):
+    """
+    Calculate 3D dfsu geometry properties
+    """
+
+    # Check if mesh is triangular or quad/tri mix
+    if element_table.shape[0] % 3 == 0:
+        cid = 3
+    else:
+        cid = 4
+
+    # Iterate through each element and determine if the next element is
+    # in the same position, or is a new 2D element
+    MaxLyr = dfs_obj.NumberOfLayers
+    ele_ids_horz = [1]
+    layer_count = [MaxLyr]
+    ele_ids_surf = [False]
+    e_last = element_table[0]
+
+    for c, e in enumerate(element_table[1:], 1):
+        if e[0] == e_last[cid]:
+            ele_ids_horz.append(ele_ids_horz[c - 1])
+            layer_count.append(layer_count[c - 1] - 1)
+            ele_ids_surf.append(False)
+            e_last = e
+        else:
+            ele_ids_horz.append(ele_ids_horz[c - 1] + 1)
+            layer_count.append(MaxLyr)
+            ele_ids_surf.append(False)
+            ele_ids_surf[c - 1] = True
+            e_last = e
+    ele_ids_surf[-1] = True
+
+    # Count layers and assign a vertical layer number
+    layer_count = layer_count[::-1]
+    ele_ids_vert = [MaxLyr]
+    for c, l in enumerate(layer_count[1:], 1):
+        diff = l - layer_count[c - 1]
+        if diff == 1:
+            ele_ids_vert.append(ele_ids_vert[c - 1] - 1)
+        elif diff <= 0:
+            ele_ids_vert.append(MaxLyr)
+    ele_ids_vert = ele_ids_vert[::-1]
+
+    return ele_ids_horz, ele_ids_vert, ele_ids_surf
+
+
+def _calc_2d_geo(dfs_obj, elements, nodes, node_ids, element_table, ele_ids_surf):
+    """
+    Generate a dict with equivalent 2D mesh geometry. 
+    Used for 2D plotting and for building 2D dfsu files. 
+    """
+
+    # Find all unique 2D elements and extract x-y positions.
+    element_table_surf = element_table[ele_ids_surf][:, 4:] - 1
+
+    nodes_top = np.unique(element_table_surf)
+    nodes_top[nodes_top == 0] = []
+
+    NodeCols = element_table_surf.shape[1]
+    EleRows = element_table_surf.shape[0]
+
+    node_boundary_code = np.zeros((1, nodes_top.shape[0]), dtype=int)
+    nodes_2d = nodes[nodes_top]
+    nodes_ids_2d = node_ids[nodes_top]
+    ele_2d = elements[ele_ids_surf]
+
+    ele_table_2D = np.ones((EleRows, NodeCols), dtype=int)
+    for ne in np.arange(0, EleRows, 1):
+        for nc in np.arange(0, NodeCols, 1):
+            ele_table_2D[ne, nc] = np.where(nodes_top == element_table_surf[ne, nc])[0][
+                0
+            ]
+    ele_table_2D = ele_table_2D + 1
+
+    node_table = mesh._node_table(ele_table_2D)
+
+    geo2d = {
+        "nodes": nodes_2d,
+        "node_id": nodes_ids_2d,
+        "node_boundary_code": node_boundary_code,
+        "node_table": node_table,
+        "element_table": ele_table_2D,
+        "element_ids": np.arange(1, ele_table_2D.shape[0] + 1, 1, dtype=int),
+        "elements": ele_2d,
+        "proj": str(dfs_obj.Projection.WKTString),
+        "zUnitKey": dfs_obj.get_ZUnit(),
+    }
+    return geo2d
+
+
+def _2D_element_table(self):
+    """
+    Calculates an equivalent element table by converting quad elements
+    to 2 triangular elements
+    
+    Used for rendering tricontourf plots
+    """
+
+    tn3D_top = self.element_table[self.element_ids_surf]
+    tn_top = np.zeros((len(tn3D_top), 4))
+
+    q2D = tn3D_top[:, 6] > 0
+    tn_top[q2D, :] = tn3D_top[q2D, 4:]
+    tn_top[~q2D, 0:3] = tn3D_top[~q2D, 3:6]
+
+    return tn_top
+
+
 def _element_data(
     dfsu_object,
     item_name,
@@ -947,6 +1470,7 @@ def _element_data(
         element_list = [e - 1 for e in element_list]
 
     item_idx = item_info[item_name]["index"] + 1
+
     if tstep_start is None:
         tstep_start = 0
 
@@ -1116,16 +1640,62 @@ def _map_ele_to_node(node_table, elements, nodes, element_data):
     """
     Get node data relating to specific element
     """
+
     xn = nodes[:, 0]
     yn = nodes[:, 1]
     xe = elements[:, 0]
     ye = elements[:, 1]
 
     zn = np.zeros(len(xn))
+
     for i in range(len(xn)):
         zn[i] = _interp_node_z(i, node_table, xe, ye, element_data, xn, yn)
 
     return zn
+
+
+def tritables(element_table):
+    """
+    Build connection tables for tri/quad meshes.
+    
+    Need to implement connectivitiy tables. 
+    
+    # Note, element table is already python indexed
+    """
+
+    nelmts = element_table.shape[0]
+    nnodes = element_table.max() + 1
+
+    if element_table.shape[1] % 3 == 0:
+        hasquads = False
+        quads = np.zeros((len(element_table), 1)).astype(bool)
+    else:
+        hasquads = True
+        quads = element_table[:, 3] + 1 > 0
+
+    e = np.arange(1, nelmts + 1)
+    u = np.ones((nelmts, 1))
+    I = np.asarray((e, e, e)).ravel()
+    J = element_table[:, :3].ravel("F")
+    K = np.asarray((u, u * 2, u * 3)).ravel("F")
+
+    if hasquads:
+        I = np.append(I, e[quads])
+        J = np.append(J, element_table[quads, 3])
+        K = np.append(K, 4 * u[quads])
+
+    # Make Node-to-Element table
+    if hasquads:
+        NtoE = np.zeros((nnodes, 4), dtype=int)
+    else:
+        NtoE = np.zeros((nnodes, 3), dtype=int)
+    count = np.zeros((nnodes, 1), dtype=int)
+
+    for i in range(len(I)):
+        count[J[i]] = count[J[i]] + 1
+        NtoE[J[i], count[J[i]] - 1] = I[i]
+
+    return NtoE
 
 
 """
@@ -1194,3 +1764,108 @@ def _item_aggregate_stats(
     else:
         # Else just item_name data
         return ele_data
+
+
+def _extract_2D_element_data(
+    dfsu_object,
+    item_name,
+    item_info,
+    dfsu_geo,
+    tstep_start=None,
+    tstep_end=None,
+    layers=None,
+    ele_data=None,
+):
+    """
+    Function to extract element data and take maximum throughout the specified layers.
+    
+    If Layers = None, the maximum value is taken throughout the water column.
+    """
+
+    if ele_data is not None:
+        ele_2d_data = ele_data
+    else:
+        ele_data = np.zeros((item_info["num_elements"]))
+
+        # Sort time range
+        if tstep_start is None:
+            tstep_start = 0
+
+        if tstep_end is None:
+            # Get from tstep_start to the end
+            tstep_end = item_info["num_timesteps"]
+        else:
+            # Add one to include tstep_end in output
+            tstep_end += 1
+
+        # Load the element data
+        if layers is not None:
+
+            # Determine which elements belong to the specified layer(s)
+            element_list = []
+            for l in layers:
+                element_list.extend(
+                    list(np.where(l == np.asarray(dfsu_geo["element_ids_vert"]))[0])
+                )
+
+            if type(layers) is int:
+                ele_2d_data = _element_data(
+                    dfsu_object,
+                    item_name,
+                    item_info,
+                    tstep_start=tstep_start,
+                    tstep_end=tstep_end - 1,
+                    element_list=element_list,
+                )
+
+            elif type(layers) is list:
+                ele_data = _element_data(
+                    dfsu_object,
+                    item_name,
+                    item_info,
+                    tstep_start=tstep_start,
+                    tstep_end=tstep_end - 1,
+                    element_list=element_list,
+                )
+
+                # Initialise the 2-D Element data array (1 x ntimesteps)
+                ele_2d_data = np.zeros(
+                    (dfsu_geo["elements_2d"].shape[0], ele_data.shape[1]), dtype=float
+                )
+
+                # stack each layer of data.
+                # (Note, change this to np array for faster processing next time)
+                nn = []
+                for l in layers:
+                    nn.extend(
+                        np.asarray(dfsu_geo["element_ids_horz"])[
+                            (np.asarray(dfsu_geo["element_ids_vert"]) == 1)
+                        ].tolist()
+                    )
+
+                # For each 2D cell, take the maximum in each stack of data.
+                for c, n in enumerate(np.arange(1, ele_2d_data.shape[0] + 1, 1)):
+                    ids = n == nn
+                    ele_2d_data[c, :] = np.max(ele_data[ids, :], axis=0)
+
+        else:  # No layers specified. Extract all data and take max.
+            ele_data = _element_data(
+                dfsu_object,
+                item_name,
+                item_info,
+                tstep_start=tstep_start,
+                tstep_end=tstep_end - 1,
+            )
+
+            # Initialise the 2-D Element data array (1 x ntimesteps)
+            ele_2d_data = np.zeros(
+                (dfsu_geo["elements_2d"].shape[0], ele_data.shape[1]), dtype=float
+            )
+
+            # For each 2D cell, take the maximum in each stack of data.
+            nn = np.array(dfsu_geo["element_ids_horz"])
+            for c, n in enumerate(np.arange(1, ele_2d_data.shape[0] + 1, 1)):
+                ids = n == nn
+                ele_2d_data[c, :] = np.max(ele_data[ids, :], axis=0)
+
+    return ele_2d_data

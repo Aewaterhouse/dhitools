@@ -1,14 +1,21 @@
 """DHI MIKE21 mesh functions
+
+Authors: 
+Robert Wall (original dhitools package),
+Alex Waterhouse (expanded functionality)
+
 """
 
-# Author: Robert Wall
+from . import _utils
+from . import units
+from . import config
+from . import plot
 
+import os
+import clr
 import numpy as np
 import geopandas as gpd
 import datetime as dt
-import os
-import clr
-from . import config
 
 # Set path to MIKE SDK
 sdk_path = config.MIKE_SDK
@@ -16,16 +23,13 @@ dfs_dll = config.MIKE_DFS
 eum_dll = config.MIKE_EUM
 clr.AddReference(os.path.join(sdk_path, dfs_dll))
 clr.AddReference(os.path.join(sdk_path, eum_dll))
-clr.AddReference('System')
+clr.AddReference("System")
 
 # Import .NET libraries
 import DHI.Generic.MikeZero.DFS as dfs
 from DHI.Generic.MikeZero import eumQuantity
 import System
 from System import Array
-
-from . import _utils
-from . import units
 
 
 class Mesh(object):
@@ -93,24 +97,24 @@ class Mesh(object):
             self.read_mesh()
 
     def read_mesh(self, filename=None):
-        '''
+        """
         Read in .mesh file
 
         Parameters
         ----------
         filename : str
             File path to .mesh file
-        '''
+        """
         if filename is None:
             filename = self.filename
         else:
             self.filename = filename
 
-        if filename.endswith('.mesh'):
+        if filename.endswith(".mesh"):
             dfs_obj = dfs.mesh.MeshFile.ReadMesh(filename)
             self.projection = str(dfs_obj.ProjectionString)
             self.zUnitKey = dfs_obj.EumQuantity.Unit
-        elif filename.endswith('.dfsu'):
+        elif filename.endswith(".dfsu"):
             dfs_obj = dfs.DfsFileFactory.DfsuFileOpen(filename)
             self.projection = str(dfs_obj.Projection.WKTString)
             self.zUnitKey = dfs_obj.get_ZUnit()
@@ -125,17 +129,28 @@ class Mesh(object):
         self.node_table = mesh_in[4]
         self.elements = mesh_in[5]
         self.element_ids = mesh_in[6]
-        self._file_input = True
+
+        self.num_layers = dfs_obj.NumberOfLayers
+        self.num_siglayers = dfs_obj.NumberOfSigmaLayers
         self.num_elements = len(self.elements)
         self.num_nodes = len(self.nodes)
 
-        if filename.endswith('.dfsu'):
+        # calculate equivalent triangular mesh geometry for plotting functions
+        if self.element_table.shape[1] % 3 == 0:
+            self.ele_type = "TRI"
+        else:
+            self.ele_type = "QUAD-TRI"
+            self.element_table_tri = _quads_to_tris(self.element_table)
+
+        self._file_input = True
+
+        if filename.endswith(".dfsu"):
             dfs_obj.Close()
 
     def summary(self):
-        '''
+        """
         Prints a summary of the mesh
-        '''
+        """
         if self._file_input:
             print("Input mesh file: {}".format(self.filename))
         else:
@@ -150,7 +165,7 @@ class Mesh(object):
             print("Object has no element or node properties. Read in mesh.")
 
     def write_mesh(self, output_name):
-        '''
+        """
         Write new mesh file
 
         Parameters
@@ -158,18 +173,20 @@ class Mesh(object):
         output_name : str
             File path to write node (x, y, z) to .mesh file
             Include .mesh at the end of string
-        '''
-        _write_mesh(filename=output_name,
-                    nodes=self.nodes,
-                    node_id=self.node_ids,
-                    node_boundary_code=self.node_boundary_codes,
-                    element_table=self.element_table,
-                    element_ids=self.element_ids,
-                    proj=self.projection,
-                    zUnitKey=self.zUnitKey)
+        """
+        _write_mesh(
+            filename=output_name,
+            nodes=self.nodes,
+            node_id=self.node_ids,
+            node_boundary_code=self.node_boundary_codes,
+            element_table=self.element_table,
+            element_ids=self.element_ids,
+            proj=self.projection,
+            zUnitKey=self.zUnitKey,
+        )
 
-    def interpolate_rasters(self, raster_list, method='nearest'):
-        '''
+    def interpolate_rasters(self, raster_list, method="nearest"):
+        """
         Interpolate multiple raster elevations to mesh nodes
 
         Parameters
@@ -192,7 +209,7 @@ class Mesh(object):
 
         * `LinearNDInterpolator <https://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.interpolate.LinearNDInterpolator.html#scipy.interpolate.LinearNDInterpolator>`_
 
-        '''
+        """
         from . import _raster_interpolate as _ri
 
         for r in raster_list:
@@ -215,7 +232,7 @@ class Mesh(object):
             self.nodes[:, 2][updated_bool] = only_updated_z
 
     def to_gpd(self, elements=True, output_shp=None):
-        '''
+        """
         Export mesh elements or nodes to GeoDataFrame with option to write to
         shape file
 
@@ -231,18 +248,18 @@ class Mesh(object):
         -------
         mesh_df : GeoDataFrame, shape (nrows, 2)
             Geopandas df with field for element or node id if specified
-        '''
+        """
 
         from shapely.geometry import Point
         import pycrs
 
         # Sort input depending on elements or nodes
         if elements:
-            field_name = 'Ele_num'
+            field_name = "Ele_num"
             point_data = self.elements
             point_id = self.element_ids
         else:
-            field_name = 'Node_num'
+            field_name = "Node_num"
             point_data = self.nodes
             point_id = self.node_ids
 
@@ -251,8 +268,7 @@ class Mesh(object):
         mesh_series = gpd.GeoSeries(mesh_points)
 
         # Create GeoDataframe
-        mesh_df = gpd.GeoDataFrame(point_id, geometry=mesh_series,
-                                   columns=[field_name])
+        mesh_df = gpd.GeoDataFrame(point_id, geometry=mesh_series, columns=[field_name])
 
         # Set crs
         proj4_crs = pycrs.parser.from_ogc_wkt(self.projection).to_proj4()
@@ -263,8 +279,7 @@ class Mesh(object):
 
         return mesh_df
 
-    def lyr_from_shape(self, lyr_name, input_shp, field_attribute,
-                       output_shp=None):
+    def lyr_from_shape(self, lyr_name, input_shp, field_attribute, output_shp=None):
         """
         Create a model input layer at mesh element coordinates.
 
@@ -297,20 +312,24 @@ class Mesh(object):
         mesh_df = self.to_gpd()
 
         # Perform spatial join
-        join_df = gpd.sjoin(mesh_df, input_df, how='left', op='within')
+        join_df = gpd.sjoin(mesh_df, input_df, how="left", op="within")
 
         # Drop duplicated points; there is the potential to have duplicated
         # points when they intersect two different polygons. Keep the first
-        join_df = join_df[~join_df.index.duplicated(keep='first')]
+        join_df = join_df[~join_df.index.duplicated(keep="first")]
 
         self.lyrs[lyr_name] = np.array(join_df[field_attribute])
 
         if output_shp is not None:
             join_df.to_file(output_shp)
 
-    def lyr_to_dfsu(self, lyr_name, output_dfsu,
-                    item_type=units.get_item("ManningsM"),
-                    unit_type=units.get_unit("Meter2One3rdPerSec")):
+    def lyr_to_dfsu(
+        self,
+        lyr_name,
+        output_dfsu,
+        item_type=units.get_item("ManningsM"),
+        unit_type=units.get_unit("Meter2One3rdPerSec"),
+    ):
         """
         Create model layer .dfsu file `lyr` attribute. References `lyrs`
         attribute dictionary as value at element coordinates to write to
@@ -338,8 +357,9 @@ class Mesh(object):
 
         """
         # Check that lyr_name is correct
-        assert self.lyrs[lyr_name].shape[0] == self.num_elements, \
-            "Length of input layer must equal number of mesh elements"
+        assert (
+            self.lyrs[lyr_name].shape[0] == self.num_elements
+        ), "Length of input layer must equal number of mesh elements"
 
         # Load mesh file and mesh object
         mesh_class = dfs.mesh.MeshFile()
@@ -352,13 +372,10 @@ class Mesh(object):
         # Create arbitrary date and timestep; this is not a dynamic dfsu
         date = dt.datetime(2018, 1, 1, 0, 0, 0, 0)
         time_step = 1.0
-        builder.SetTimeInfo(System.DateTime(date.year, date.month, date.day),
-                            time_step)
+        builder.SetTimeInfo(System.DateTime(date.year, date.month, date.day), time_step)
 
         # Create dfsu attribute
-        builder.AddDynamicItem(lyr_name,
-                               eumQuantity(item_type,
-                                           unit_type))
+        builder.AddDynamicItem(lyr_name, eumQuantity(item_type, unit_type))
 
         # Create file
         dfsu_file = builder.CreateFile(output_dfsu)
@@ -372,7 +389,7 @@ class Mesh(object):
         # Close file
         dfsu_file.Close()
 
-    def plot_mesh(self, fill=False, kwargs=None):
+    def plot_mesh(self, fill=False, ax=None, **kwargs):
         """
         Plot triangular mesh with triplot or tricontourf.
 
@@ -405,17 +422,29 @@ class Mesh(object):
         * `Tricontourf <https://matplotlib.org/api/_as_gen/matplotlib.pyplot.tricontourf.html>`_
 
         """
+
         if fill:
-            fig, ax, tf = _filled_mesh_plot(self.nodes[:,0],
-                                            self.nodes[:,1],
-                                            self.nodes[:,2],
-                                            self.element_table,
-                                            kwargs)
+            # Check whether there are quads in mesh, and link new
+            # ele table if so.
+            if self.ele_type == "TRI":
+                element_table = self.element_table
+            else:
+                element_table = self.element_table_tri
+
+            fig, ax, tf = plot.filled_mesh_plot(
+                self.nodes[:, 0],
+                self.nodes[:, 1],
+                self.nodes[:, 2],
+                element_table,
+                ax,
+                kwargs,
+            )
             return fig, ax, tf
 
         else:
-            fig, ax = _mesh_plot(self.nodes[:,0], self.nodes[:,1],
-                                 self.element_table, kwargs)
+            fig, ax = plot.mesh_plot(
+                self.nodes[:, 0], self.nodes[:, 1], self.element_table, ax, kwargs
+            )
             return fig, ax
 
     def grid_res(self, res, nodes=True):
@@ -451,22 +480,23 @@ class Mesh(object):
         from . import _gridded_interpolate as _gi
 
         if nodes:
-            x = self.nodes[:,0]
-            y = self.nodes[:,1]
+            x = self.nodes[:, 0]
+            y = self.nodes[:, 1]
         else:
-            x = self.elements[:,0]
-            y = self.elements[:,1]
+            x = self.elements[:, 0]
+            y = self.elements[:, 1]
 
         # Gridded (x, y)
         self.grid_x, self.grid_y = _gi.dfsu_XY_meshgrid(x, y, res=res)
 
         # Interpolation vertices and weights
-        all_gridded_points = np.column_stack((self.grid_x.flatten(),
-                                              self.grid_y.flatten()))
+        all_gridded_points = np.column_stack(
+            (self.grid_x.flatten(), self.grid_y.flatten())
+        )
         xy = np.column_stack((x, y))
         self.grid_vertices, self.grid_weights = _gi.interp_weights(
-            xy,
-            all_gridded_points)
+            xy, all_gridded_points
+        )
 
         # Update grid calculations flag
         self._grid_calc = True
@@ -493,9 +523,9 @@ class Mesh(object):
 
         from . import _gridded_interpolate as _gi
 
-        grid_x, grid_y = _gi.dfsu_XY_meshgrid(self.nodes[:,0],
-                                              self.nodes[:,1],
-                                              res=res)
+        grid_x, grid_y = _gi.dfsu_XY_meshgrid(
+            self.nodes[:, 0], self.nodes[:, 1], res=res
+        )
 
         return grid_x, grid_y
 
@@ -512,8 +542,9 @@ class Mesh(object):
         """
         from . import _gridded_interpolate as _gi
 
-        min_x, max_x, min_y, max_y = _gi.dfsu_details(self.nodes[:,0],
-                                                      self.nodes[:,1])
+        min_x, max_x, min_y, max_y = _gi.dfsu_details(
+            self.nodes[:, 0], self.nodes[:, 1]
+        )
 
         return min_x, max_x, min_y, max_y
 
@@ -575,7 +606,7 @@ class Mesh(object):
             mesh_mask = self.mask()
 
         # Create (x,y) grid at input resolution
-        X, Y = _gi.dfsu_XY_meshgrid(self.nodes[:,0], self.nodes[:,1], res=res)
+        X, Y = _gi.dfsu_XY_meshgrid(self.nodes[:, 0], self.nodes[:, 1], res=res)
 
         # Create boolean mask
         bool_mask = []
@@ -598,9 +629,6 @@ def _dfsu_builder(mesh_path):
 
 def _read_mesh(dfs_obj):
     """ See Mesh class description for output details """
-    num_nodes = dfs_obj.NumberOfNodes
-    num_elements = dfs_obj.NumberOfElements
-
     # Node coordinates
     nodes = _node_coordinates(dfs_obj)
 
@@ -614,17 +642,17 @@ def _read_mesh(dfs_obj):
     ele_table = _element_table(dfs_obj)
 
     # Node table
-    node_table = _node_table(num_nodes, num_elements, ele_table)
+    node_table = _node_table(ele_table)
 
     # Element ids
     element_ids = _utils.dotnet_arr_to_ndarr(dfs_obj.ElementIds)
 
     # Element coordinates
-    if dfs_obj.GetType().get_Name() == 'DfsuFile':
+    if dfs_obj.GetType().get_Name() == "DfsuFile":
         # Use internal MIKE SDK method if dfsu file
         elements = _dfsu_element_coordinates(dfs_obj)
 
-    elif dfs_obj.GetType().get_Name() == 'MeshFile':
+    elif dfs_obj.GetType().get_Name() == "MeshFile":
         # Else derive coordinates from element table and nodes
         elements = _mesh_element_coordinates(ele_table, nodes)
 
@@ -637,57 +665,90 @@ def _node_coordinates(dfs_obj):
     yn = _utils.dotnet_arr_to_ndarr(dfs_obj.Y)
     zn = _utils.dotnet_arr_to_ndarr(dfs_obj.Z)
 
-    return np.column_stack([xn,yn,zn])
+    return np.column_stack([xn, yn, zn])
 
 
 def _element_table(dfs_obj):
     """ Defines for each element the nodes that define the element """
     table_obj = dfs_obj.ElementTable
-    ele_table = np.zeros((len(table_obj), 3), dtype=int)
+
+    # Check whether mesh contains just triangles or tri/quad mix (3 vs 4)
+    ele_table_shp = _utils.dotnet_arr_to_ndarr(table_obj[0]).shape[0]
+
+    ele_table = np.zeros((len(table_obj), ele_table_shp), dtype=int)
     for i, e in enumerate(table_obj):
         ele_table[i, :] = _utils.dotnet_arr_to_ndarr(e)
     return ele_table
 
 
-def _node_table(num_nodes, num_elements, ele_table):
-    """ Create node_table from ele_table """
+def _node_table(element_table):
+    """
+    Build node connection tables for tri/quad meshes.
+    
+    Need to implement connectivitiy tables. 
+    """
 
-    # Set placeholders for constructing node-to-element-table (node_table)
-    e = np.arange(num_elements)
-    u = np.ones(num_elements)
-    I = np.concatenate((e, e, e))
-    J = np.concatenate((ele_table[:,0],ele_table[:,1],ele_table[:,2]))
-    K = np.concatenate((u*1, u*2, u*3))
+    # Convert element table to Python indexing (0-based)
+    element_table = element_table - 1
 
-    # Construct node_table
-    count = np.zeros((num_nodes,1))
+    nelmts = element_table.shape[0]
+    nnodes = element_table.max() + 1
+
+    if element_table.shape[1] % 3 == 0:
+        hasquads = False
+        quads = np.zeros((len(element_table), 1)).astype(bool)
+    else:
+        hasquads = True
+        quads = element_table[:, 3] + 1 > 0
+
+    e = np.arange(1, nelmts + 1)
+    u = np.ones((nelmts, 1))
+    I = np.asarray((e, e, e)).ravel()
+    J = element_table[:, :3].ravel("F")
+    K = np.asarray((u, u * 2, u * 3)).ravel("F")
+
+    if hasquads:
+        I = np.append(I, e[quads])
+        J = np.append(J, element_table[quads, 3])
+        K = np.append(K, 4 * u[quads])
+
+    # Make Node-to-Element table
+    if hasquads:
+        node_table = np.zeros((nnodes, 4), dtype=int)
+    else:
+        node_table = np.zeros((nnodes, 3), dtype=int)
+    count = np.zeros((nnodes, 1), dtype=int)
+
     for i in range(len(I)):
-        count[J[i-1]-1] = count[J[i-1]-1]+1
-    num_cols = int(count.max())
-
-    node_table = np.zeros((num_nodes,num_cols), dtype='int')
-    count = np.zeros((num_nodes,1))
-    for i in range(len(I)):
-        count[J[i-1]-1] = count[J[i-1]-1]+1
-        node_table[J[i-1]-1, int(count[J[i-1]-1])-1] = I[i]
+        count[J[i]] = count[J[i]] + 1
+        node_table[J[i], count[J[i]] - 1] = I[i]
 
     return node_table
 
 
-def _mesh_element_coordinates(element_tables, nodes):
+def _mesh_element_coordinates(element_table, nodes):
     """ Manual method to calc element coords from ele table and node coords"""
     # Node coords
     xn = nodes[:, 0]
     yn = nodes[:, 1]
     zn = nodes[:, 2]
 
-    # Elmt node index mapping (minus 1 because python indexing)
-    node_map = element_tables[:, 1:].astype('int') - 1
+    if element_table.shape[1] % 3 == 0:
+        quads = np.zeros((len(element_table), 1)).astype(bool)
+    else:
+        quads = element_table[:, 3] > 0
 
-    # Take mean of nodes mapped to element
-    xe = np.mean(xn[node_map], axis=1)
-    ye = np.mean(yn[node_map], axis=1)
-    ze = np.mean(zn[node_map], axis=1)
+    xe = np.sum(xn[element_table[:, 0:3]], axis=1)
+    ye = np.sum(yn[element_table[:, 0:3]], axis=1)
+    ze = np.sum(zn[element_table[:, 0:3]], axis=1)
+
+    xe[quads] = xe[quads] + xn[element_table[quads, 3]]
+    ye[quads] = ye[quads] + yn[element_table[quads, 3]]
+    ze[quads] = ze[quads] + zn[element_table[quads, 3]]
+
+    xe = xe / (3 + quads.astype(int))
+    ye = ye / (3 + quads.astype(int))
+    ze = ze / (3 + quads.astype(int))
 
     return np.stack([xe, ye, ze], axis=1)
 
@@ -703,21 +764,51 @@ def _dfsu_element_coordinates(dfsu_object):
     ztemp = Array.CreateInstance(System.Double, 0)
 
     # Get element coords
-    elemts_temp = dfs.dfsu.DfsuUtil.CalculateElementCenterCoordinates(dfsu_object, xtemp, ytemp, ztemp)
+    elemts_temp = dfs.dfsu.DfsuUtil.CalculateElementCenterCoordinates(
+        dfsu_object, xtemp, ytemp, ztemp
+    )
 
     # Place in array; need to get from .NET Array to numpy array
     for n in range(3):
         ele_coords_temp = []
-        for ele in elemts_temp[n+1]:
+        for ele in elemts_temp[n + 1]:
             ele_coords_temp.append(ele)
         element_coordinates[:, n] = ele_coords_temp
 
     return element_coordinates
 
 
-def _write_mesh(filename, nodes, node_id,
-                node_boundary_code, element_table,
-                element_ids, proj, zUnitKey=1000):
+def _quads_to_tris(element_table):
+    """
+    Calculates an equivalent element table by converting quad elements
+    to 2 triangular elements
+    
+    Used for rendering tricontourf plots
+    """
+
+    quad_elements = element_table[:, -1] != 0
+
+    element_table_tri = []
+    for i, cond in enumerate(quad_elements):
+        if cond:
+            element_table_tri.append(element_table[i][:3])
+            element_table_tri.append(element_table[i, [0, 2, 3]])
+        else:
+            element_table_tri.append(element_table[i][:3])
+
+    return np.asarray(element_table_tri)
+
+
+def _write_mesh(
+    filename,
+    nodes,
+    node_id,
+    node_boundary_code,
+    element_table,
+    element_ids,
+    proj,
+    zUnitKey=1000,
+):
     """ See Mesh class description for input details """
 
     eum_type = 100079  # Specify item type as 'bathymetry' (MIKE convention)
@@ -727,58 +818,29 @@ def _write_mesh(filename, nodes, node_id,
     ele_write_fmt = np.column_stack([element_ids, element_table])
 
     # Open file to write to
-    with open(filename, 'w') as target:
+    with open(filename, "w") as target:
         # Format first line
-        first_line = '%i  %i  %i  %s\n' % (eum_type, zUnitKey, num_nodes, proj)
+        first_line = "%i  %i  %i  %s\n" % (eum_type, zUnitKey, num_nodes, proj)
         target.write(first_line)
 
         # Nodes
-        np.savetxt(target, node_write_fmt, fmt='%i %-17.15g %17.15g %17.15g %i',
-                   newline='\n', delimiter=' ')
+        np.savetxt(
+            target,
+            node_write_fmt,
+            fmt="%i %-17.15g %17.15g %17.15g %i",
+            newline="\n",
+            delimiter=" ",
+        )
 
         # Element header
         num_elements = len(ele_write_fmt)
 
         # Specify only triangular elements
-        elmt_header = '%i %i %i\n' % (num_elements, 3, 21)
+        elmt_header = "%i %i %i\n" % (num_elements, 3, 21)
         target.write(elmt_header)
 
         # Elements
-        np.savetxt(target, ele_write_fmt, fmt='%i', newline='\n', delimiter=' ')
-
-
-def _mesh_plot(x, y, element_table, kwargs=None):
-    """ Triplot of the mesh """
-    if kwargs is None:
-        kwargs = {}
-
-    import matplotlib.pyplot as plt
-    import matplotlib.tri as tri
-
-    # Subtract 1 from element table to align with Python indexing
-    t = tri.Triangulation(x, y, element_table-1)
-
-    fig, ax = plt.subplots()
-    ax.triplot(t, **kwargs)
-
-    return fig, ax
-
-
-def _filled_mesh_plot(x, y, z, element_table, kwargs=None):
-    """ Tricontourf of the mesh and input z"""
-    if kwargs is None:
-        kwargs = {}
-
-    import matplotlib.pyplot as plt
-    import matplotlib.tri as tri
-
-    # Subtract 1 from element table to align with Python indexing
-    t = tri.Triangulation(x, y, element_table-1)
-
-    fig, ax = plt.subplots()
-    tf = ax.tricontourf(t, z, **kwargs)
-
-    return fig, ax, tf
+        np.savetxt(target, ele_write_fmt, fmt="%i", newline="\n", delimiter=" ")
 
 
 """
@@ -859,9 +921,9 @@ def _extract_all_polygons(be_idx):
             # Find next edge
 
             # Edges with start node
-            equal_start_idx = np.argwhere(node_start == be_idx)[:,0]
+            equal_start_idx = np.argwhere(node_start == be_idx)[:, 0]
             # Edges with next node
-            equal_next_idx = np.argwhere(node_next == be_idx)[:,0]
+            equal_next_idx = np.argwhere(node_next == be_idx)[:, 0]
 
             # Want edge with next node but not the start node
             next_edge_idx = equal_next_idx[~np.isin(equal_next_idx, equal_start_idx)]
