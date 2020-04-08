@@ -10,6 +10,7 @@ Key changes:
 * Separated out plotting routines into a new module for more flexibility
 
 To do:
+* Add notebook examples of 3D and quad working
 * Check functionality with sigma/z-layer meshtypes
 * Implement direct item plotting from 3D dfsu files (without first converting to 2D)
 
