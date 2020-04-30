@@ -1401,8 +1401,11 @@ def _calc_2d_geo(dfs_obj, elements, nodes, node_ids, element_table, ele_ids_surf
     """
 
     # Find all unique 2D elements and extract x-y positions.
-    element_table_surf = element_table[ele_ids_surf][:, 4:] - 1
-
+    if element_table.shape[1] % 3 == 0:
+        element_table_surf = element_table[ele_ids_surf][:, 3:] - 1
+    else:
+        element_table_surf = element_table[ele_ids_surf][:, 4:] - 1
+    
     nodes_top = np.unique(element_table_surf)
     nodes_top[nodes_top == 0] = []
 

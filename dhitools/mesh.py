@@ -712,13 +712,19 @@ def _node_table(element_table):
         J = np.append(J, element_table[quads, 3])
         K = np.append(K, 4 * u[quads])
 
+    # Precount to find max connection count
+    count = np.zeros((nnodes, 1), dtype=int)
+    for i in range(len(I)):
+        count[J[i]] = count[J[i]] + 1
+
     # Make Node-to-Element table
     if hasquads:
-        node_table = np.zeros((nnodes, 4), dtype=int)
+        node_table = np.zeros((nnodes, count.max()), dtype=int)
     else:
-        node_table = np.zeros((nnodes, 3), dtype=int)
-    count = np.zeros((nnodes, 1), dtype=int)
+        node_table = np.zeros((nnodes, count.max()), dtype=int)
 
+    # Populate NtoE Table
+    count = np.zeros((nnodes, 1), dtype=int)
     for i in range(len(I)):
         count[J[i]] = count[J[i]] + 1
         node_table[J[i], count[J[i]] - 1] = I[i]
