@@ -235,7 +235,6 @@ class Dfsu(mesh.Mesh):
             ele_cords=self.elements,
             node_cords=self.nodes,
             node_table=self.node_table,
-            element_table=self.element_table,
             tstep_start=tstep_start,
             tstep_end=tstep_end,
         )
