@@ -8,6 +8,7 @@ Alex Waterhouse (expanded functionality)
 
 from . import dfsu
 from . import mesh
+from . import plot
 from . import _utils
 from . import config
 from . import units
@@ -552,7 +553,7 @@ class Dfsu(mesh.Mesh):
         else:
             item_data = node_data
 
-        fig, ax, tf = plot._filled_mesh_plot(
+        fig, ax, tf = plot.filled_mesh_plot(
             self.nodes[:, 0], self.nodes[:, 1], item_data, self.element_table, kwargs
         )
 
@@ -597,13 +598,13 @@ class Dfsu(mesh.Mesh):
         element_table = self.geo2d["element_table"]
 
         if fill:
-            fig, ax, tf = mesh._filled_mesh_plot(
+            fig, ax, tf = plot.filled_mesh_plot(
                 nodes[:, 0], nodes[:, 1], nodes[:, 2], element_table, kwargs,
             )
             return fig, ax, tf
 
         else:
-            fig, ax = mesh._mesh_plot(nodes[:, 0], nodes[:, 1], element_table, kwargs)
+            fig, ax = plot.mesh_plot(nodes[:, 0], nodes[:, 1], element_table, kwargs)
             return fig, ax
 
     def gridded_item(
