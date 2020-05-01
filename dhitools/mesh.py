@@ -119,6 +119,8 @@ class Mesh(object):
             self.projection = str(dfs_obj.Projection.WKTString)
             self.zUnitKey = dfs_obj.get_ZUnit()
             self.nodata = dfs_obj.DeleteValueFloat
+            self.num_layers = dfs_obj.NumberOfLayers
+            self.num_siglayers = dfs_obj.NumberOfSigmaLayers
 
         mesh_in = _read_mesh(dfs_obj)
 
@@ -130,8 +132,6 @@ class Mesh(object):
         self.elements = mesh_in[5]
         self.element_ids = mesh_in[6]
 
-        self.num_layers = dfs_obj.NumberOfLayers
-        self.num_siglayers = dfs_obj.NumberOfSigmaLayers
         self.num_elements = len(self.elements)
         self.num_nodes = len(self.nodes)
 
@@ -734,6 +734,7 @@ def _node_table(element_table):
 
 def _mesh_element_coordinates(element_table, nodes):
     """ Manual method to calc element coords from ele table and node coords"""
+
     # Node coords
     xn = nodes[:, 0]
     yn = nodes[:, 1]
@@ -741,16 +742,22 @@ def _mesh_element_coordinates(element_table, nodes):
 
     if element_table.shape[1] % 3 == 0:
         quads = np.zeros((len(element_table), 1)).astype(bool)
+        hasquads = False
     else:
         quads = element_table[:, 3] > 0
+        hasquads = True
+
+    # Convert to python indexing
+    element_table = element_table - 1
 
     xe = np.sum(xn[element_table[:, 0:3]], axis=1)
     ye = np.sum(yn[element_table[:, 0:3]], axis=1)
     ze = np.sum(zn[element_table[:, 0:3]], axis=1)
 
-    xe[quads] = xe[quads] + xn[element_table[quads, 3]]
-    ye[quads] = ye[quads] + yn[element_table[quads, 3]]
-    ze[quads] = ze[quads] + zn[element_table[quads, 3]]
+    if hasquads is True:
+        xe[quads] = xe[quads] + xn[element_table[quads, 3]]
+        ye[quads] = ye[quads] + yn[element_table[quads, 3]]
+        ze[quads] = ze[quads] + zn[element_table[quads, 3]]
 
     xe = xe / (3 + quads.astype(int))
     ye = ye / (3 + quads.astype(int))
