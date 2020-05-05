@@ -27,6 +27,7 @@ import matplotlib.tri as tri
 from matplotlib.collections import PolyCollection
 from matplotlib.path import Path
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import matplotlib.animation as animation
 from descartes import PolygonPatch
 import seaborn as sns
 
@@ -35,6 +36,10 @@ sns.set(style="white")
 plt.rcParams["font.family"] = "sans-serif"
 plt.rcParams["font.sans-serif"] = "Arial"
 plt.rcParams["font.size"] = "12"
+plt.rcParams[
+    "animation.ffmpeg_path"
+] = "C:/Users/WaterhA/_WORK/_APPS/ffmpeg/bin/ffmpeg.exe"
+tf = None
 
 
 def mesh_plot(x, y, element_table, ax=None, kwargs=None):
@@ -83,7 +88,7 @@ def filled_mesh_plot(x, y, z, element_table, ax=None, kwargs=None):
     kwargs["antialiased"] = kwargs.get("antialiased", "True")
 
     if ax is None:
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(tight_layout=True)
         plt.gca().set_aspect("equal")
     else:
         fig = plt.gcf()
@@ -100,7 +105,52 @@ def filled_mesh_plot(x, y, z, element_table, ax=None, kwargs=None):
     return fig, ax, tf
 
 
+def animation_plot(
+    x,
+    y,
+    z_data,
+    element_table,
+    ani_fname,
+    existing_fig,
+    ani_funcargs=None,
+    ani_saveargs=None,
+    kwargs=None,
+):
+    """ 
+    Tricontourf animation plot.
+    
+    Resulting file will be saved to MP4    
+    """
+    global tf
+
+    # Subtract 1 from element table to align with Python indexing
+    t = tri.Triangulation(x, y, element_table - 1)
+
+    # Preassign fig and ax
+    if existing_fig is None:
+        fig, ax, tf = filled_mesh_plot(x, y, z_data[:, 0], element_table, **kwargs)
+    else:
+        fig, ax, tf = existing_fig
+
+    # animation function
+    def animate(i):
+        global tf
+
+        z = z_data[:, i]
+        for c in tf.collections:
+            c.remove()  # removes only the contours, leaves the rest intact
+        tf = ax.tricontourf(t, z, **kwargs)
+
+    anim = animation.FuncAnimation(fig, animate, frames=z_data.shape[1], repeat=True,)
+    anim.save(ani_fname, writer=animation.FFMpegWriter(**ani_funcargs), **ani_saveargs)
+
+    return fig, ax, tf
+
+
 def geoimread(imname, tfwname):
+    """
+    Read georeference world files (arcgis/qgis format)
+    """
     IM = {}
     IM["I"] = plt.imread(imname)
 
@@ -126,6 +176,9 @@ def geoimread(imname, tfwname):
 
 
 def inpol(PolVerticies, X, Y):
+    """
+    Simple inpolygon function
+    """
     x, y = X.flatten(), Y.flatten()
     points = np.vstack((x, y)).T
 
@@ -163,8 +216,8 @@ def vert_colorbar(m, ax, label=None):
 
 def plot_shapefile(sf, plt_args, geom, ax):
     """
-    Plot a background shapefile for SWAN Result pdict
-    This will pdict all features in the shapefile.
+    Plot a background shapefile
+    This will plot all features in the shapefile.
     
     sf        : sf = shapefile.Reader(SHAPEFILE_FNAME)
     plt_args  : arguments to pass through to plt pdict(x,y,plt_args)

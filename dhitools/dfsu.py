@@ -544,8 +544,8 @@ class Dfsu(mesh.Mesh):
         else:
             item_data = node_data
 
-        # If the meshtype is mixed quad/tri, substitute element table with the 
-        # equivalent tri only table. 
+        # If the meshtype is mixed quad/tri, substitute element table with the
+        # equivalent tri only table.
         if self.ele_type == "TRI":
             element_table = self.element_table
         elif self.ele_type == "QUAD-TRI":
@@ -557,6 +557,83 @@ class Dfsu(mesh.Mesh):
 
         if plot_mesh:
             self.plot_mesh(ax=ax)
+
+        return fig, ax, tf
+
+    def animate_item(
+        self,
+        item_name,
+        existing_fig=None,
+        tstep_start=None,
+        tstep_end=-1,
+        ani_fname="animation.mp4",
+        ani_funcargs={},
+        ani_saveargs={},
+        **kwargs
+    ):
+        """
+        Plot triangular mesh animation.
+        
+        Mesh will be rendered as a mp4 file. 
+        
+        It is recommended that this animation function is used on an already 
+        created figure,  to allowing custom styling. 
+        Recommended workflow:
+        1. Setup figure as preferred using `dfsu.plot_item`
+        2. Pass fig, ax and tf to this animate function
+        
+        **Warning**: Performance can be poor for large dfsu files.
+
+        Parameters
+        ----------
+        item_name : str
+            Specified item to return element data. Item names are found in
+            the `Dfsu.items` attribute.
+        existing_fig : tuple
+            Tuple including the existing figure items (fig, ax, tf)
+        tstep_start : int
+            Specify start time step for animation. Timesteps begin from 0.
+            Default = 0
+        tstep_end : int
+            Specify end time step for anmimation.
+            If left out, will default to all timesteps from tstep_start.
+        ani_fname: str
+            Filename to output animation file (.mp4)
+        kwargs : dict
+            Additional arguments supported by tricontourf
+
+        Returns
+        -------
+        fig : matplotlib figure obj
+        ax : matplotlib axis obj
+        tf : tricontourf obj
+
+        """
+
+        # Get item_data and reshape from (N,1) to (N,) because of single
+        # timestep. tricontourf prefers (N,)
+        item_data = self.item_node_data(
+            item_name, tstep_start=tstep_start, tstep_end=tstep_end
+        )
+
+        # If the meshtype is mixed quad/tri, substitute element table with the
+        # equivalent tri only table.
+        if self.ele_type == "TRI":
+            element_table = self.element_table
+        elif self.ele_type == "QUAD-TRI":
+            element_table = self.element_table_tri
+
+        fig, ax, tf = plot.animation_plot(
+            self.nodes[:, 0],
+            self.nodes[:, 1],
+            item_data,
+            element_table,
+            ani_fname,
+            existing_fig=existing_fig,
+            ani_funcargs=ani_funcargs,
+            ani_saveargs=ani_saveargs,
+            kwargs=kwargs,
+        )
 
         return fig, ax, tf
 

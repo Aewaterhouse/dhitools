@@ -517,7 +517,9 @@ class Dfsu(mesh.Mesh):
         else:
             return max_amplitude_ele
 
-    def plot_item(self, item_name=None, tstep=None, node_data=None, kwargs=None):
+    def plot_item(
+        self, layer=None, item_name=None, tstep=None, node_data=None, kwargs=None
+    ):
         """
         Plot triangular mesh with tricontourf for input item and timestep
 
@@ -525,6 +527,8 @@ class Dfsu(mesh.Mesh):
 
         Parameters
         ----------
+        layer : int
+            Specified layer to plot in 2D. If `None`, will plot surface layer
         item_name : str
             Specified item to return element data. Item names are found in
             the `Dfsu.items` attribute.
@@ -543,21 +547,23 @@ class Dfsu(mesh.Mesh):
         tf : tricontourf obj
 
         """
-        if node_data is None:
-            # Get item_data and reshape from (N,1) to (N,) because of single
-            # timestep. tricontourf prefers (N,)
-            assert tstep is not None, "Must provided tstep if providing `item_name`"
-            item_data = self.item_node_data(item_name, tstep)
-            item_data = np.reshape(item_data, self.num_nodes)
+        # if node_data is None:
+        #     # Get item_data and reshape from (N,1) to (N,) because of single
+        #     # timestep. tricontourf prefers (N,)
+        #     assert tstep is not None, "Must provided tstep if providing `item_name`"
+        #     item_data = self.item_node_data(item_name, tstep)
+        #     item_data = np.reshape(item_data, self.num_nodes)
 
-        else:
-            item_data = node_data
+        # else:
+        #     item_data = node_data
 
-        fig, ax, tf = plot.filled_mesh_plot(
-            self.nodes[:, 0], self.nodes[:, 1], item_data, self.element_table, kwargs
-        )
+        # fig, ax, tf = plot.filled_mesh_plot(
+        #     self.nodes[:, 0], self.nodes[:, 1], item_data, self.element_table, kwargs
+        # )
 
-        return fig, ax, tf
+        # return fig, ax, tf
+        print("Not yet implemented")
+        
 
     def plot_mesh(self, fill=False, kwargs=None):
         """
@@ -1075,8 +1081,8 @@ class Dfsu(mesh.Mesh):
                 items = {'Surface Elevation': 
                     {
                         'arr': element_data, 
-                        'item_type': units.get_item("SurfaceElevation"), 
-                        'unit_type': units.get_unit("meter"),
+                        'item_type': `units.get_item("SurfaceElevation")`, 
+                        'unit_type': `units.get_unit("meter")`,
                     }
 
             Dict-keys : str
