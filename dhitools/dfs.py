@@ -42,7 +42,7 @@ class _Dfs(object):
         dt_start_obj = time_obj.StartDateTime
         items['num_timesteps'] = time_obj.NumberOfTimeSteps
         self.number_tstep = items['num_timesteps']
-        self.num_items = dfs_object.ItemInfo.Count
+        self.num_items = len(dfs_object.ItemInfo)
         self.timestep = time_obj.TimeStep
         self.start_datetime = dt.datetime(year=dt_start_obj.Year,
                                           month=dt_start_obj.Month,
