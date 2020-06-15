@@ -2,8 +2,6 @@
 """
 
 import os
-import clr
-from . import config
 
 # Import .NET libraries
 from DHI.Generic.MikeZero import eumUnit, eumItem

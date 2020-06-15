@@ -13,13 +13,11 @@ Various plotting utility have also been added for ease of access when post-proce
 
 from . import _utils
 from . import units
-from . import config
 
 import numpy as np
 import geopandas as gpd
 import datetime as dt
 import os
-import clr
 
 # Plotting utilities
 import matplotlib.pyplot as plt

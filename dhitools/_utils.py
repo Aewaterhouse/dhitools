@@ -1,5 +1,4 @@
 import numpy as np
-import clr
 
 from System.Runtime.InteropServices import GCHandle, GCHandleType
 

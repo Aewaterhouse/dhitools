@@ -10,11 +10,9 @@ from . import dfsu
 from . import mesh
 from . import plot
 from . import _utils
-from . import config
 from . import units
 
 import os
-import clr
 import numpy as np
 from scipy.spatial import cKDTree
 import datetime as dt
@@ -1333,16 +1331,22 @@ def _dfsu_info(dfsu_object):
 
     See class attributes
     """
-    itemnames = [[n.Name, n.Quantity.UnitAbbreviation] for n in dfsu_object.ItemInfo]
+    itemnames = [
+        [n.Name, 
+        n.Quantity.UnitAbbreviation, 
+        n.Quantity.ItemDescription, 
+        n.Quantity.Item, 
+        n.Quantity.Unit] for n in dfsu_object.ItemInfo]
     items = {}
 
     for ind, it in enumerate(itemnames):
-
         # Create key from itemname and add to dictionary
         itemName = str(it[0])
-        itemUnit = str(it[1])
         items[itemName] = {}
-        items[itemName]["unit"] = itemUnit
+        items[itemName]["unit_abr"] = str(it[1])
+        items[itemName]["item_type"] = str(it[2])
+        items[itemName]["eum_item_DHI"] = str(it[3])
+        items[itemName]["eum_unit_DHI"] = str(it[4])
         items[itemName]["index"] = ind
 
     items["num_timesteps"] = dfsu_object.NumberOfTimeSteps

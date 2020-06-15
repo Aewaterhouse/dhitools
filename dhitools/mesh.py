@@ -8,11 +8,9 @@ Alex Waterhouse (expanded functionality)
 
 from . import _utils
 from . import units
-from . import config
 from . import plot
 
 import os
-import clr
 import numpy as np
 import geopandas as gpd
 import datetime as dt
