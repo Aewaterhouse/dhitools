@@ -832,6 +832,17 @@ class Dfsu(mesh.Mesh):
         when dfsu output is a subset of the mesh
         """
         raise AttributeError("'dfsu' object has no attribute 'mask'")
+        
+    def find_nearest_element(self, points, tree=None):
+        """ Returns 2D element number of the nearest ele to each point"""
+        if tree is None:
+            xy = self.elements[:, 0:2]
+            tree = cKDTree(xy)
+
+        _, idx = tree.query(points, k=1)
+        ind = np.column_stack(np.unravel_index(idx, xy.shape[0]))
+
+        return ind + 1  # +1 to align with DHI ele-num
 
     def create_dfsu(
         self, items, output_dfsu, start_datetime=None, timestep=None,
