@@ -563,7 +563,6 @@ class Dfsu(mesh.Mesh):
 
         # return fig, ax, tf
         print("Not yet implemented")
-        
 
     def plot_mesh(self, fill=False, kwargs=None):
         """
@@ -1133,7 +1132,7 @@ class Dfsu(mesh.Mesh):
         Creates a new dfsu file at output_dfsu : dfsu file
 
         """
-        dim = self.geo2d["elements"].shape
+        dim = self.elements.shape
         for v in items.values():
             assert (
                 v["arr"].shape[0] == dim[0]
