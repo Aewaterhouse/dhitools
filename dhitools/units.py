@@ -5,14 +5,8 @@ import os
 import clr
 from . import config
 
-# Set path to MIKE SDK
-sdk_path = config.MIKE_SDK
-eum_dll = config.MIKE_EUM
-clr.AddReference(os.path.join(sdk_path, eum_dll))
-
 # Import .NET libraries
 from DHI.Generic.MikeZero import eumUnit, eumItem
-
 
 def get_item(item):
     """

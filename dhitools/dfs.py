@@ -9,16 +9,8 @@ from . import config
 import os
 import clr
 
-# Set path to MIKE SDK
-sdk_path = config.MIKE_SDK
-dfs_dll = config.MIKE_DFS
-eum_dll = config.MIKE_EUM
-clr.AddReference(os.path.join(sdk_path, dfs_dll))
-clr.AddReference(os.path.join(sdk_path, eum_dll))
-
 # Import .NET libraries
 import DHI.Generic.MikeZero.DFS as dfs
-
 
 class _Dfs(object):
     """

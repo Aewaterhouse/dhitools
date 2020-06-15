@@ -1,10 +1,6 @@
 import numpy as np
 import clr
 
-# Import .NET libraries
-
-clr.AddReference('System')
-
 from System.Runtime.InteropServices import GCHandle, GCHandleType
 
 import ctypes

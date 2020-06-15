@@ -19,14 +19,6 @@ import numpy as np
 from scipy.spatial import cKDTree
 import datetime as dt
 
-# Set path to MIKE SDK
-sdk_path = config.MIKE_SDK
-dfs_dll = config.MIKE_DFS
-eum_dll = config.MIKE_EUM
-clr.AddReference(os.path.join(sdk_path, dfs_dll))
-clr.AddReference(os.path.join(sdk_path, eum_dll))
-clr.AddReference("System")
-
 # Import .NET libraries
 import System
 from System import Array
@@ -1130,6 +1122,11 @@ class Dfsu(mesh.Mesh):
         Returns
         -------
         Creates a new dfsu file at output_dfsu : dfsu file
+        
+        
+        
+        # ------ To Do:
+        Allow z-coordinate to be explicity supplied. 
 
         """
         dim = self.elements.shape
@@ -1139,7 +1136,10 @@ class Dfsu(mesh.Mesh):
             ), "Rows of input array must equal number of mesh elements"
 
         dfs_obj = dfs.DfsFileFactory.DfsuFileOpen(self.filename)
-        builder = dfs.dfsu.DfsuBuilder.Create(dfs.dfsu.DfsuFileType.Dfsu2D)
+        if self.num_layers == self.num_siglayers:
+            builder = dfs.dfsu.DfsuBuilder.Create(dfs.dfsu.DfsuFileType.Dfsu3DSigma)
+        else:
+            builder = dfs.dfsu.DfsuBuilder.Create(dfs.dfsu.DfsuFileType.Dfsu3DSigmaZ)
 
         # Create mesh nodes
         node_x = Array[System.Double](self.nodes[:, 0])
@@ -1148,7 +1148,7 @@ class Dfsu(mesh.Mesh):
         node_id = Array[System.Int32](self.node_boundary_codes)
 
         # Element table
-        element_table = Array.CreateInstance(System.Int32, self.num_elements, 3)
+        element_table = Array.CreateInstance(System.Int32, self.num_elements, dim[1])
 
         for i in range(self.num_elements):
             for j in range(dim[1]):
@@ -1156,6 +1156,7 @@ class Dfsu(mesh.Mesh):
 
         # Set dfsu items
         builder.SetNodes(node_x, node_y, node_z, node_id)
+        builder.SetNumberOfSigmaLayers(self.num_siglayers)
         builder.SetElements(dfs_obj.ElementTable)
         builder.SetProjection(dfs_obj.Projection)
 
@@ -1191,7 +1192,12 @@ class Dfsu(mesh.Mesh):
         # Write item data
         ntimesteps = arr.shape[1]
         nvariables = arr.shape[2]
+
         for j in range(ntimesteps):
+            # Write Z-Coordinate
+            dfsu_file.WriteItemTimeStepNext(0, dfs_obj.ReadItemTimeStep(1, j).Data)
+
+            # Write variables
             for k in range(nvariables):
                 net_arr = Array.CreateInstance(System.Single, dim[0])
                 for i, val in enumerate(arr[:, j, k]):

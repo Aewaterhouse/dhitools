@@ -17,20 +17,11 @@ import numpy as np
 import geopandas as gpd
 import datetime as dt
 
-# Set path to MIKE SDK
-sdk_path = config.MIKE_SDK
-dfs_dll = config.MIKE_DFS
-eum_dll = config.MIKE_EUM
-clr.AddReference(os.path.join(sdk_path, dfs_dll))
-clr.AddReference(os.path.join(sdk_path, eum_dll))
-clr.AddReference("System")
-
 # Import .NET libraries
 import DHI.Generic.MikeZero.DFS as dfs
 from DHI.Generic.MikeZero import eumQuantity
 import System
 from System import Array
-
 
 class Mesh(object):
     """
