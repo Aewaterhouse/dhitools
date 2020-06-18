@@ -112,7 +112,7 @@ class _Dfs(object):
         for n in self.items["names"]:
             print(
                 "{}, unit = {}, index = {}".format(
-                    n, self.items[n]["unit"], self.items[n]["index"]
+                    n, self.items[n]["unit_abr"], self.items[n]["index"]
                 )
             )
 

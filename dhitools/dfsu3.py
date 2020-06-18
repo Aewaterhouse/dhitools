@@ -153,7 +153,7 @@ class Dfsu(mesh.Mesh):
             if k not in ["num_elements", "num_nodes", "num_timesteps"]:
                 print(
                     "{}, unit = {}, index = {}".format(
-                        k, self.items[k]["unit"], self.items[k]["index"]
+                        k, self.items[k]["unit_abr"], self.items[k]["index"]
                     )
                 )
 
