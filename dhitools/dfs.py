@@ -27,9 +27,12 @@ class _Dfs(object):
 
         See class attributes
         """
+        items = {}
+
         time_obj = dfs_object.FileInfo.TimeAxis
         dt_start_obj = time_obj.StartDateTime
 
+        self.number_tstep = time_obj.NumberOfTimeSteps
         self.num_items = len(dfs_object.ItemInfo)
         self.timestep = time_obj.TimeStep
         self.start_datetime = dt.datetime(
@@ -54,7 +57,6 @@ class _Dfs(object):
             ]
             for n in dfs_object.ItemInfo
         ]
-        items = {}
 
         for ind, it in enumerate(itemnames):
             # Create key from itemname and add to dictionary
@@ -65,9 +67,6 @@ class _Dfs(object):
             items[itemName]["eum_item_DHI"] = str(it[3])
             items[itemName]["eum_unit_DHI"] = str(it[4])
             items[itemName]["index"] = ind
-
-        items["num_timesteps"] = dfs_object.NumberOfTimeSteps
-        self.number_tstep = items["num_timesteps"]
 
         return items
 
@@ -109,7 +108,7 @@ class _Dfs(object):
             print("")
 
         print("Items:")
-        for n in self.items["names"]:
+        for n in self.items.keys():
             print(
                 "{}, unit = {}, index = {}".format(
                     n, self.items[n]["unit_abr"], self.items[n]["index"]
@@ -169,9 +168,7 @@ class Dfs0(_Dfs):
                 item_data = dfs0_object.ReadItemTimeStep(j + 1, i)
                 out_arr[i, j] = item_data.Data[0]
 
-        out_df = pd.DataFrame(
-            data=out_arr, columns=self.items["names"], index=self.time
-        )
+        out_df = pd.DataFrame(data=out_arr, columns=self.items.keys(), index=self.time)
 
         if close:
             dfs0_object.Close()
@@ -225,7 +222,7 @@ class Dfs1(_Dfs):
         """
         Read in .dfs1 file
         """
-        for itemname in self.items["names"]:
+        for itemname in self.items.keys():
             item_idx = self.items[itemname]["index"] + 1
             out_arr = np.zeros((self.number_tstep, self.num_points))
 
@@ -416,7 +413,7 @@ def _item_data(
         tstep_end = tstep_start + 1
     elif tstep_end == -1:
         # Get from tstep_start to the end
-        tstep_end = item_info["num_timesteps"]
+        tstep_end = dfs2_object.FileInfo.TimeAxis.NumberOfTimeSteps
     else:
         # Add one to include tstep_end in output
         tstep_end += 1
