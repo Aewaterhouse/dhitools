@@ -29,8 +29,7 @@ class _Dfs(object):
         """
         time_obj = dfs_object.FileInfo.TimeAxis
         dt_start_obj = time_obj.StartDateTime
-        
-        self.number_tstep = items["num_timesteps"]
+
         self.num_items = len(dfs_object.ItemInfo)
         self.timestep = time_obj.TimeStep
         self.start_datetime = dt.datetime(
@@ -44,7 +43,7 @@ class _Dfs(object):
         self.end_datetime = self.start_datetime + dt.timedelta(
             seconds=self.timestep * self.number_tstep
         )
-        
+
         itemnames = [
             [
                 n.Name,
@@ -68,6 +67,7 @@ class _Dfs(object):
             items[itemName]["index"] = ind
 
         items["num_timesteps"] = dfs_object.NumberOfTimeSteps
+        self.number_tstep = items["num_timesteps"]
 
         return items
 
