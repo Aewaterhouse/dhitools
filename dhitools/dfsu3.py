@@ -1146,9 +1146,9 @@ class Dfsu(mesh.Mesh):
         node_id = Array[System.Int32](self.node_boundary_codes)
 
         # Element table
-        element_table = Array.CreateInstance(System.Int32, self.num_elements, dim[1])
+        element_table = Array.CreateInstance(System.Int32, dim[0], dim[1])
 
-        for i in range(self.num_elements):
+        for i in range(dim[0]):
             for j in range(dim[1]):
                 element_table[i, j] = self.element_table[i, j]
 
@@ -1369,7 +1369,7 @@ def _3d_element_geo(dfs_obj, element_table):
     """
 
     # Check if mesh is triangular or quad/tri mix
-    if element_table.shape[0] % 3 == 0:
+    if element_table.shape[1] % 3 == 0:
         cid = 3
     else:
         cid = 4
